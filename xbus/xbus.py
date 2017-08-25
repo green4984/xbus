@@ -6,6 +6,11 @@ import zmq
 import threading
 import logging
 
+try:
+    import simplejson as json
+except:
+    import json
+
 
 class QueueFactory(object):
     def __init__(self, proxy):
@@ -46,10 +51,44 @@ class MQProxy(object):
     def consume(self):
         pass
 
+    @abc.abstractmethod
+    def push(self, body):
+        pass
+
+    @abc.abstractmethod
+    def pull(self):
+        pass
+
+
+class MessageProxy(object):
+    def __init__(self, data):
+        self.data = data
+
+    @abc.abstractmethod
+    def serialize(self):
+        pass
+
+    @abc.abstractmethod
+    def deserialization(self):
+        pass
+
+
+class JsonMessage(MessageProxy):
+    def serialize(self):
+        return json.dump(self.data)
+
+    def deserialization(self):
+        return json.loads(self.data)
+
+
+class SmsMessageProxy(MessageProxy):
+    pass
+
 
 class RedisMQProxy(MQProxy):
     def __init__(self, redis_instance, *channel):
         assert redis_instance is not None
+        assert isinstance(redis_instance, (redis.Redis, redis.StrictRedis))
         self.redis = redis_instance
         self.channel = channel if isinstance(channel, (tuple, list)) else [channel]
         self.ps = self.redis.pubsub(ignore_subscribe_messages=True)
@@ -112,42 +151,3 @@ class ZMQProxy(MQProxy):
         if self.callback:
             self.callback(msg)
         return msg
-
-
-def get_message(message):
-    logging.warning(msg=message)
-
-
-def test_redis_proxy():
-    url = 'redis://:@127.0.0.1:6380'
-    rd1 = redis.Redis.from_url(url=url, db=11)
-    rd2 = redis.Redis.from_url(url=url, db=11)
-    q1 = QueueFactory(RedisMQProxy(rd1, 'tt1'))
-
-    q2 = QueueFactory(RedisMQProxy(rd2, 'tt1'))
-    q2.subscribe(get_message)
-    time.sleep(5)
-    q1.publish('hello')
-    time.sleep(9)
-    q2.consume()
-    q2.unsubscribe()
-
-
-def test_zmq_proxy():
-    z_sub = QueueFactory(ZMQProxy('tcp://127.0.0.1:5003'))
-    z_pub = QueueFactory(ZMQProxy('tcp://127.0.0.1:5003'))
-
-    z_sub.subscribe(get_message)
-    time.sleep(2)
-    z_pub.publish(b'hello zmq')
-    time.sleep(2)
-    while True:
-        z_sub.consume()
-    z_sub.unsubscribe()
-
-
-
-if __name__ == '__main__':
-    # test_redis_proxy()
-    test_zmq_proxy()
-    pass
